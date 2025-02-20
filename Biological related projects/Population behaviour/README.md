@@ -17,7 +17,7 @@ Example:
 - fitness('a') = 0.78
 
 Objectives:
-- Single allele, Locus and Individuals need to have their own custom classes, so 3 in total -> class's names("Allele", "Locus", "Individual")
+- Single Allele, Locus and Individuals need to have their own custom classes, so 3 in total -> class's names("Allele", "Locus", "Individual")
 - Simulate a RANDOM SELECTION event -> at each generation the individuals are removed if their fitness is lower than a random number between 0 and 1
 - Simulate a REPRODUCTION event -> at each generation the remaining individuals from the random selection mate to give life to new offspring. Each new individual will have a random genotype whose alleles will be randomly chosen from those present in the population.
 - Combine the RANDOM SELECTION event with the REPRODUCTION -> in order to mantain a population of 100 individuals but with a different proportion of the alleles with the respect of the previous generation population

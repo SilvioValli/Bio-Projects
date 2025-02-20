@@ -5,7 +5,9 @@ A series of “mini-projects” / exercises related to solving problems and recu
 
 Some of these were inspired by Dr. Martin Jones' books such as “Advanced Python for Biologists” and my university experiences. All the exercises/projects you will find have been modified from the originals to adapt them to personal needs.
 
-Among the projects you will find, we will address issues related to the evolution of genes within a population based on their fitness, algorithms for searching for patterns within DNA sequences and much more.
+Among the projects you will find, we will address issues related to:
+- Evolution of genes within a population based on the gene fitness --> (..)
+- Algorithms for searching for patterns within DNA sequences and much more.
 
 I hope you find this material inspiring, happy bioinformatics to all 😄🔬🌱🐧
 

@@ -1,17 +1,23 @@
 <h1>Biological related Projects</h1>
 
 <h2>Description</h2>
-Project consists of a simple PowerShell script that walks the user through "zeroing out" (wiping) any drives that are connected to the system. The utility allows you to select the target disk and choose the number of passes that are performed. The PowerShell script will configure a diskpart script file based on the user's selections and then launch Diskpart to perform the disk sanitization.
+A series of “mini-projects” / exercises related to solving problems and recurring events in biology.
+
+Some of these were inspired by Dr. Martin Jones' books such as “Advanced Python for Biologists” and my university experiences. All the exercises/projects you will find have been modified from the originals to adapt them to personal needs.
+
+Among the projects you will find, we will address issues related to the evolution of genes within a population based on their fitness, algorithms for searching for patterns within DNA sequences and much more.
+
+I hope you find this material inspiring, happy bioinformatics to all 😄🔬🌱🐧
+
+!!!I would like to point out that the following description may be obsolete at the time of your inspection as the content is continuously updated and revised.!!!
 <br />
 
 
 <h2>Languages and Utilities Used</h2>
 
-- <b>PowerShell</b> 
-- <b>Diskpart</b>
+- <b>Python</b> (Pandas, NumPy, Seaborn, etc.)
+- <b>R</b>
 
 <h2>Environments Used </h2>
 
-- <b>Windows 10</b> (21H2)
-
-<h2>Program walk-through:</h2>
+- <b>Jupyter Notebook</b> 

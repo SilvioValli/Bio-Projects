@@ -21,3 +21,6 @@ I hope you find this material inspiring, happy bioinformatics to all 😄🔬�
 <h2>Environments Used </h2>
 
 - <b>Jupyter Notebook</b> 
+
+<h2>Final Results</h2>
+![image](https://github.com/user-attachments/assets/4d7b7e18-210e-4da8-8aa6-14c7194217f5)

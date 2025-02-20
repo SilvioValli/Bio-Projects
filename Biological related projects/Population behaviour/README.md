@@ -33,4 +33,4 @@ Objectives:
 - <b>Jupyter Notebook</b>
 
 <h2>Final results</h2>
-![Image](https://github.com/user-attachments/assets/ccf11e65-57bc-4ae6-a674-e37ce61d51f9)
+<img src="https://i.imgur.com/QFpFLtb.png" height="50%" width="50%" alt=""/>

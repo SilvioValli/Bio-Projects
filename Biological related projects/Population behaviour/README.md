@@ -30,4 +30,7 @@ Objectives:
 
 <h2>Environments Used </h2>
 
-- <b>Jupyter Notebook</b> 
+- <b>Jupyter Notebook</b>
+
+<h2>Final results</h2>
+![Image](https://github.com/user-attachments/assets/ccf11e65-57bc-4ae6-a674-e37ce61d51f9)

@@ -22,7 +22,9 @@ Objectives:
 - Simulate a REPRODUCTION event -> at each generation the remaining individuals from the random selection mate to give life to new offspring. Each new individual will have a random genotype whose alleles will be randomly chosen from those present in the population.
 - Combine the RANDOM SELECTION event with the REPRODUCTION -> in order to mantain a population of 100 individuals but with a different proportion of the alleles with the respect of the previous generation population
 - Write a "csv" file all the frequencies for each locus in the population and VISUALIZE the changes with a graphical representation
+- Create a Pipeline 
 <br />
+
 
 
 <h2>Languages Used</h2>

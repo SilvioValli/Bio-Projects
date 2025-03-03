@@ -1,4 +1,4 @@
-<h1>Population Behaviour</h1>
+<h1>Population's Allele Behaviour</h1>
 
 <h2>Description</h2>
 This mini-project was inspired by the end-of-chapter exercise on object-oriented programming in Dr. Martin Jones' book “Advanced Python for Biologists”.

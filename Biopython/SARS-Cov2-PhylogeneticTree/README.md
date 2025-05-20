@@ -15,7 +15,7 @@ The following results are related to the SPIKE protein
 <img src="https://i.imgur.com/vyaiASr.png" height="50%" width="50%" alt=""/>
 
 <h2>Documentation</h2>
-For further readings about the project --> <a href="Biopython/SARS-Cov2-PhylogeneticTree/Project_description.docx">(📄)</a>
+For further readings about the project --> <a href="https://view.officeapps.live.com/op/view.aspx?src=https%3A%2F%2Fraw.githubusercontent.com%2FSilvioValli%2FBio-Projects%2Frefs%2Fheads%2Fmain%2FBiopython%2FSARS-Cov2-PhylogeneticTree%2FProject_description.docx&wdOrigin=BROWSELINK">(📄)</a>
 
 <h2>Languages and Utilities Used</h2>
 

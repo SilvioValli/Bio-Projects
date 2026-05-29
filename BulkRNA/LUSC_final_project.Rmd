@@ -1,0 +1,1048 @@
+---
+title: "SquamousProject"
+output: html_document
+---
+
+# Lung Squamous Cell Carcinoma (LUSC)
+
+**1) BIOLOGICAL INTRODUCTION**
+
+Lung cancer is one of the leading causes of cancer-related mortality worldwide and is broadly classified into two main categories: non-small cell lung cancer (NSCLC) and small-cell lung cancer (SCLC). Among NSCLC sub types, **Lung Squamous Cell Carcinoma (LUSC)** accounts for approximately **20–30%** of lung cancer cases and originates from the epithelial cells lining the bronchial airways. LUSC is strongly associated with tobacco smoking and is characterized by keratinization, intercellular bridges, and frequent genomic alterations affecting genes involved in cell cycle regulation and oxidative stress responses.
+
+Our study will focus on the average gene expression level differences between LUSC tumors that originated in the **upper** and **lower lobe** through a **bulk RNA-seq** analysis. The aim is to determine if their gene expression profiles are different and can be consequently exploited to design custom-tailored therapeutic or pharmacological strategies within a personalized medicine oriented approach. The results will be analysed from both a gene and pathway point of view.
+
+**2) PRELIMINARY OBSERVATIONS**
+
+Since both upper and lower lobe belong to the same organ, contain the same main cell types (epithelial cells, immune cells, fibroblasts, endothelial cells) and perform the same physiological functions, in principle their baseline gene expression programs are very similar. That’s why we generally do not expect huge transcriptional differences between them.
+
+However, regional biological differences are well known in the lung, and several biological factors may contribute to differences between tumors arising in the upper and lower lung lobes.
+
+Potential differences between upper and lower lobe tumors may primarily reflect variations in the **tumor microenvironment** rather than intrinsic tumor cell biology. These may include differences in immune infiltration and inflammatory signaling, with enrichment of pathways related to immune response and inflammation, such as the NF-kappa B signaling pathway and interferon-related signaling. Additionally, regional differences in lung physiology and exposure to inhaled carcinogens may lead to variation in oxidative stress and DNA damage responses.
+
+Some transcriptional variation may also be associated with **regional epithelial programs** or microenvironmental features such as hypoxia and vascularization, potentially involving regulators such as HIF1A. However, it is also possible that the analysis reveals limited or no significant differential expression between the two anatomical locations, as tumor-specific transcriptional programs often dominate over anatomical origin.
+
+Overall, differences between upper and lower lobe tumors are expected to be subtle and may be more evident at the level of pathway enrichment or microenvironmental signatures rather than large sets of differentially expressed genes.
+
+------------------------------------------------------------------------
+
+## DEG ANALYSIS
+
+**1) LOADING LIBRARIES**
+
+```{r}
+library(SummarizedExperiment)
+library(DESeq2)
+library(org.Hs.eg.db)
+library(ggplot2)
+library(clusterProfiler)
+library(pheatmap)
+library(readxl)
+library(ggrepel)
+library(survival)
+library(survminer)
+```
+
+**2) DOWNLOAD**
+
+```{r}
+#COUNTS
+counts <- read.csv("LungSquamousCarcinoma_counts.csv", row.names = 1)
+#quality check 
+head(rownames(counts))
+head(colnames(counts))
+counts[1, 1:10]
+
+#COLDATA
+coldata <- read.csv("LungSquamousCarcinoma_coldata.csv", row.names = 1)
+#quality check 
+head(rownames(coldata))
+head(colnames(coldata))
+coldata[1, 1:10]
+
+#ROWDATA
+rowdata <- read.csv("LungSquamousCarcinoma_rowdata.csv", row.names = 2)
+#quality check 
+head(rownames(rowdata))
+head(colnames(rowdata))
+rowdata[1, 1:5]
+```
+
+**3) CREATE SUMMARIZED EXPERIMENT + PROJECT WISE PREPROCESSING**
+
+```{r}
+#SE
+se <- SummarizedExperiment(
+  assays = as.matrix(counts), 
+  rowData = rowdata,
+  colData = coldata
+)
+#quality check
+dim(assay(se))
+dim(colData(se))
+dim(rowData(se))
+
+#PROJECT-WISE PRE-PROCESSING
+
+##BIOLOGICAL FILTER
+keep <- colData(se)$sample_type.samples != "Solid Tissue Normal"
+keep <- keep & !(colData(se)$tissue_or_organ_of_origin.diagnoses %in% c("Lung, NOS", "Main bronchus", "Middle lobe, lung", "Overlapping lesion of lung"))
+
+se_filtered <- se[, keep]
+
+#quality check
+dim(se) == dim(se_filtered)
+any(colData(se_filtered)$sample_type.samples == "Solid Tissue Normal")
+any(colData(se_filtered)$tissue_or_organ_of_origin.diagnoses %in% c("Lung,NOS", "Main bronchus", "Middle lobe, lung", "Overlapping lesion of lung"))
+
+## REMOVING SPACES AND COMMAS ON THE VARIABLE OF INTEREST
+se_filtered$tissue_or_organ_of_origin.diagnoses <- gsub(" ", "", se_filtered$tissue_or_organ_of_origin.diagnoses)
+
+se_filtered$tissue_or_organ_of_origin.diagnoses <- gsub(",", "_", se_filtered$tissue_or_organ_of_origin.diagnoses)
+
+## LEVELS ADJUSTMENT
+unique(se_filtered$tissue_or_organ_of_origin.diagnoses)
+class(se_filtered$tissue_or_organ_of_origin.diagnoses)
+se_filtered$tissue_or_organ_of_origin.diagnoses <- as.factor(se_filtered$tissue_or_organ_of_origin.diagnoses)
+levels(se_filtered$tissue_or_organ_of_origin.diagnoses)
+
+## COUNTS MATRIX STORAGE MODE
+mat <- assay(se_filtered)
+is.matrix(mat) #check if matrix
+storage.mode(mat) #check object's storage type for compatibility purposes == what modelling functions like DESeq2 relies on
+storage.mode(mat) <- "integer"
+storage.mode(mat)
+assay(se_filtered) <- mat
+
+## PROVIDE NAME TO COUNT MATRIX
+assayNames(se_filtered) <- "counts"
+
+## RENAME ROWDATA NAMES THAT ARE FORBIDDEN
+forbidden_names <- c("seqnames","ranges","strand","start","end","width","element")
+colnames(rowData(se_filtered))
+bad <- intersect(colnames(rowData(se_filtered)), forbidden_names)
+colnames(rowData(se_filtered))[match(bad, colnames(rowData(se_filtered)))] <- paste0("meta_",bad)
+colnames(rowData(se_filtered))
+```
+
+**4) CREATE DESEQ2 OBJECT + ANALYSIS-WISE PRE-PROCESSING**
+
+```{r}
+#DESeq OBJ
+dds <- DESeqDataSet(se_filtered, design = ~ tissue_or_organ_of_origin.diagnoses)
+#quality check
+dim(rowData(dds))
+dim(colData(dds))
+dim(counts(dds))
+
+# DELETE GENES WITH LOW COUNTS + NOT PRESENT IN AT LEAST THE ENTIRE SMALLEST GROUP OF THE DESIGN VARIABLE
+table(dds$tissue_or_organ_of_origin.diagnoses)
+smallestGroupSize <- min(table(dds$tissue_or_organ_of_origin.diagnoses))
+keep <- rowSums(counts(dds)>= 10) >= smallestGroupSize
+dds_filtered <- dds[keep,]
+dim(dds_filtered)
+
+```
+
+**5) DE ANALYSIS**
+
+```{r}
+# DE ANALYSIS
+dds <- DESeq(dds_filtered)
+resultsNames(dds) #plot the names of the covariates in the statistical model
+
+## RESULTS UPPER vs LOWER: LFC(UPPER/LOWER)
+res <- results(dds, alpha = 0.05, contrast = list("tissue_or_organ_of_origin.diagnoses_Upperlobe_lung_vs_Lowerlobe_lung"))
+head(res) # we set FDR < 0.05 
+dim(res)
+
+resSig <- res[res$padj < 0.05 & !is.na(res$padj),] #subset for statistical significance
+resSig <- res[abs(res$log2FoldChange) >= 1, ] #subset for LFC 
+dim(resSig)
+resSig <- resSig[order(abs(resSig$log2FoldChange), decreasing = TRUE),] # sort for absoulte LFC value in decreasing order
+
+head(resSig)
+dim(resSig)
+```
+
+Out of the initial 56786 genes, **101** have been identified as differentially expressed - between upper and lower lung lobe - with an **adjusted p-value \> 0.05** and a **LFC \>= 1**
+
+**6) GENE ANNOTATION**
+
+```{r}
+resSig$symbol <-  mapIds(org.Hs.eg.db,
+                     keys=row.names(resSig),
+                     column="SYMBOL",
+                     keytype="SYMBOL",
+                     multiVals="first")
+resSig$entrez <-  mapIds(org.Hs.eg.db,
+                     keys=row.names(resSig),
+                     column="ENTREZID",
+                     keytype="SYMBOL",
+                     multiVals="first")
+resSig$ensembl <-  mapIds(org.Hs.eg.db,
+                     keys=row.names(resSig),
+                     column="ENSEMBL",
+                     keytype="SYMBOL",
+                     multiVals="first")
+```
+
+**7) SHRINKAGE WITH "APEGLM" METHOD**
+
+```{r}
+#RE-RANKING TOP GENES WITH SHRUNKEN LFC
+##BiocManager::install("apeglm")
+resApe <- lfcShrink(dds, coef = "tissue_or_organ_of_origin.diagnoses_Upperlobe_lung_vs_Lowerlobe_lung", type = "apeglm")
+dim(resApe)
+
+resApeSig <- resApe[res$padj < 0.05 & !is.na(res$padj), ]
+resApeSig <- resApeSig[abs(resApeSig$log2FoldChange) >= 1, ]
+resApeSig <- resApeSig[order(abs(resApeSig$log2FoldChange), decreasing = TRUE), ]
+dim(resApeSig)
+head(resApeSig)
+
+#GENE ANNOTATION
+resApeSig$symbol <-  mapIds(org.Hs.eg.db,
+                     keys=row.names(resApeSig),
+                     column="SYMBOL",
+                     keytype="SYMBOL",
+                     multiVals="first")
+resApeSig$entrez <-  mapIds(org.Hs.eg.db,
+                     keys=row.names(resApeSig),
+                     column="ENTREZID",
+                     keytype="SYMBOL",
+                     multiVals="first")
+resApeSig$ensembl <-  mapIds(org.Hs.eg.db,
+                     keys=row.names(resApeSig),
+                     column="ENSEMBL",
+                     keytype="SYMBOL",
+                     multiVals="first")
+
+summary(abs(res$log2FoldChange - resApe$log2FoldChange))
+```
+
+For the 75% of genes (3rd quartile), shrinkage changed LFC by less than 0.1. This confirms that our data-set is well powered and that raw estimates were already fairly reliable. However there are a few genes where shrinkage dramatically changed the LFC.
+
+```{r}
+summary(resApeSig)
+```
+
+In our results, this produced **101** strict DE genes, with directionality:
+
+-   **86 UpRegulated**
+
+-   **15 DownRegulated**
+
+Even if the padj value displayed by "summary" is 0.1, we use the "padj" obtained by "res" namely results obtained with a FDR \< 0.05.
+
+### PLOTS
+
+**DATA PREPARATION**
+
+```{r}
+graphics.off()
+
+resPlot <- resApe #LFC or resPlot = shrunken LFC
+resPlot$padj <- res$padj #keep the padj of the first DE analysis
+resPlot$pvalue <- res$pvalue
+
+resPlotSig <- resPlot[resPlot$padj < 0.05 & !is.na(resPlot$padj), ]
+resPlotSig <- resPlotSig[abs(resPlotSig$log2FoldChange) >= 1 , ]
+resPlotSig <- resPlotSig[order(abs(resPlotSig$log2FoldChange), decreasing = TRUE), ]
+#quality check
+head(resPlotSig)
+dim(resPlotSig)
+```
+
+#### 1) P-Values HIST
+
+```{r}
+#PLOTS-DE_ANALYSIS FOLDER
+dir.create("plots", showWarnings = FALSE, recursive = TRUE)
+dir.create(file.path("plots", "DE_analysis"), showWarnings = FALSE, recursive = TRUE)
+```
+
+```{r pval-hist, fig.width=7, fig.height=4.5}
+# P-VALUES
+png(file.path("plots", "DE_analysis", "Pvalues_hist.png"), 
+    width = 2200, height = 1600, res = 250)
+hist(resPlot$pvalue, col = "royalblue4")
+dev.off()
+
+hist(resPlot$pvalue, col = "royalblue4")
+```
+
+The Hist of the p-values is aligned with what we expected. We should normally observe an higher uniform distribution and a lower peak than what we got - the general assumption in bulk RNA-seq analysis is that most of genes will not be differentially expressed - but due to the high sample size (433 samples), even small biological differences are captured (high power of the tests due to large sample size).
+
+#### **2) MA PLOT**
+
+```{r fig.width=9, fig.height=4}
+#MA PLOTS
+png(file.path("plots","DE_analysis","MA_raw_LFC.png"),
+    width = 2200, height = 1600, res = 250)
+plotMA(res, ylim = c(-3,3), main = "Upper vs Lower Lobe — Raw LFC")
+dev.off()
+
+png(file.path("plots","DE_analysis","MA_shrunken_LFC.png"),
+    width = 2200, height = 1600, res = 250)
+plotMA(resPlot, ylim = c(-3,3), main = "Upper vs Lower Lobe — Apeglm Shrunken LFC")
+dev.off()
+
+par(mfrow = c(1,2))
+plotMA(res, ylim = c(-3,3), main = "Raw LFC")
+plotMA(resPlot, ylim = c(-3,3), main = "Shrunken LFC (apeglm)")
+par(mfrow = c(1,1))
+```
+
+The graph on the left represents the distribution of the **mean normalized counts** sorted for their respective LFC (estimated through a Maximum Likelihood method). The graph on the right depicts the same relation but using the shrunken LFC, namely more reliable LFC estimates adjusted for their standard error. The method used for the shrinkage is the **"apeglm"**.
+
+#### 3) Volcano PLOT
+
+```{r fig.width=8, fig.height=6}
+resPlot$color <- "grey"
+resPlot$color[resPlot$padj < 0.05 & abs(resPlot$log2FoldChange) > 1] <- "red"
+
+sigIdx <- which(resPlot$color == "red")
+sigIdx <- sigIdx[order(resPlot$padj[sigIdx])]
+topIdx <- sigIdx[1:10]
+
+png(file.path("plots", "DE_analysis", "Volcano.png"), 
+    width = 2200, height = 1600, res = 250)
+plot(resPlot$log2FoldChange,
+     -log10(resPlot$padj),
+     col = resPlot$color,
+     pch = 20,
+     main = "Volcano Plot",
+     xlab = "Shrunken log2 Fold Change",
+     ylab = "-log10(adjusted p-value)")
+
+abline(h = -log10(0.05), lty = 2)
+abline(v = c(-1, 1), lty = 2)
+text(resPlot$log2FoldChange[topIdx],
+     -log10(resPlot$padj[topIdx]),
+     labels = rownames(resPlot)[topIdx],
+     pos = 4,
+     cex = 0.6)
+dev.off()
+
+plot(resPlot$log2FoldChange,
+     -log10(resPlot$padj),
+     col = resPlot$color,
+     pch = 20,
+     main = "Volcano Plot",
+     xlab = "Shrunken log2 Fold Change",
+     ylab = "-log10(adjusted p-value)")
+
+abline(h = -log10(0.05), lty = 2)
+abline(v = c(-1, 1), lty = 2)
+text(resPlot$log2FoldChange[topIdx],
+     -log10(resPlot$padj[topIdx]),
+     labels = rownames(resPlot)[topIdx],
+     pos = 4,
+     cex = 0.6)
+```
+
+The graph displays the relation between the **shrunken LFC** and the respective **-log10(adjusted p-values)** highlighting those which have a padj \< 0.05 and shrunken LFC \>= 1. The most ten significant genes are labeled with their names.
+
+#### **4) PLOTS Of Single Genes**
+
+```{r fig.width=9, fig.height=7, dpi=270}
+topGenes <- rownames(resPlotSig)[1:10]
+
+for (gene in topGenes) {
+  geneCounts <- plotCounts(
+    dds, gene = gene,
+    intgroup = "tissue_or_organ_of_origin.diagnoses",
+    returnData = TRUE
+  )
+  p <- ggplot(geneCounts,
+              aes(x = tissue_or_organ_of_origin.diagnoses,
+                  y = count,
+                  color = tissue_or_organ_of_origin.diagnoses)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.2) +
+    geom_jitter(width = 0.15, size = 2, alpha = 0.7) +
+    scale_y_log10() +
+    scale_color_manual(values = c("#1e4f96", "#c0392b")) +
+    labs(title  = gene,
+         x = "Lung lobe", y = "Normalised counts (log₁₀ scale)", color  = NULL) +
+    theme_bw(base_size = 12) +
+    theme(legend.position = "none")
+  print(p)
+}
+```
+
+The graphs represent the **normalized counts distributions** on a log10 scale stratified for the 2 levels within the variable of interest, namely "Lowerlobe_lung" and "Upperlobe_lung" within "tissue_or_organ_of_origin.diagnoses" design variable, for the 10 most significant differentially expressed genes.
+
+------------------------------------------------------------------------
+
+## **ENRICHMENT ANALYSIS**
+
+**RESULTS SETTING**
+
+```{r}
+#RESULTS FOLDER
+dir.create("results", showWarnings = FALSE, recursive = TRUE)
+dir.create(file.path("results", "mapping"), showWarnings = FALSE, recursive = TRUE)
+dir.create(file.path("results", "enrichment"), showWarnings = FALSE, recursive = TRUE)
+#PLOTS-ENRICHMENT FOLDER
+dir.create(file.path("plots", "enrichment"), showWarnings = FALSE, recursive = TRUE)
+```
+
+**1) MAPPING SYMBOLS**
+
+```{r}
+#DEFINING UNIVERSE
+universe_genes <- rownames(resApe)
+cat("Universe genes (after filtering for low content information genes):", length(universe_genes), "\n")
+
+#UNIVERSE MAPPING
+map_universe <- bitr(
+  universe_genes,  # rownames(dds)
+  fromType = "SYMBOL", 
+  toType = "ENTREZID", 
+  OrgDb = org.Hs.eg.db
+)
+
+universe_entrez <- unique(map_universe$ENTREZID)
+
+#QUALITY CHECK
+cat("\n|---- SYMBOL -> ENTREZID mapping (universe) ----|\n")
+cat("Universe SYMBOL (input):           ", length(universe_genes), "\n", sep="")
+cat("Mapped rows returned by bitr():    ", nrow(map_universe), "\n", sep="")
+cat("Mapped SYMBOL (unique):            ", length(unique(map_universe$SYMBOL)), "\n", sep="")
+cat("Unique ENTREZID (universe set):    ", length(unique(map_universe$ENTREZID)), "\n", sep="")
+cat("SYMBOL with 1-to-many mappings:    ", sum(table(map_universe$SYMBOL) > 1), "\n", sep="")
+cat("Unmapped SYMBOL:                   ", length(universe_genes) - length(unique(map_universe$SYMBOL)), "\n", sep="")
+cat("|-----------------------------------------------|\n")
+```
+
+Out of **21,494** input symbols (post-filtering DESeq2 universe), **18,291** unique symbols were successfully mapped (**\~85.1%**), while **3,203** symbols (**\~14.9%**) could not be mapped, consistent with known limitations of gene symbols (aliases/outdated symbols/ambiguous entries). The mapping was largely one-to-one, with only **1** symbol showing a **1-to-many** relationship. For downstream ORA, the **background universe** was defined as the **unique set of mapped Entrez IDs** (**18,292**) of the set of genes that could have been selected as DE from the DE analysis after the filtering procedure for low information genes.
+
+```{r}
+#SAVE RESULTS
+write.csv(map_universe, 
+          file.path("results", "mapping", "universe_SYMBOL_to_ENTREZ.csv"),
+          row.names = FALSE)
+```
+
+**2) MAPPING ENTREZ IDs**
+
+```{r}
+#MAPPED ENTREZ ID QUALITY CHECK
+map_sigGenes <- map_universe[map_universe$SYMBOL %in% resApeSig$symbol, ,drop = FALSE] # map for sig genes from "resApeSig"
+sigGenes_entrez <- unique(map_sigGenes$ENTREZID)
+
+mapped_deg_symb <- unique(map_sigGenes$SYMBOL)
+unmapped_deg_symb <- setdiff(resApeSig$symbol, unique(map_sigGenes$SYMBOL))
+deg_symb_to_many <- table(map_sigGenes$SYMBOL)
+n_deg_1tomany <- sum(deg_symb_to_many > 1)
+
+cat("\n|---- DEG mapping summary (SYMBOL -> ENTREZID) ----|\n")
+cat("Sig Genes DEG SYMBOL (input, unique):         ", length(resApeSig$symbol), "\n", sep="")
+cat("Mapped sig genes DEG SYMBOL (unique):         ", length(unique(unmapped_deg_symb)), "\n", sep="")
+cat("Unmapped sig genes DEG SYMBOL:                ", length(unmapped_deg_symb), "\n", sep="")
+cat("Sig DEG ENTREZID (unique):                    ", length(sigGenes_entrez), "\n", sep="")
+cat("Sig DEG SYMBOL with 1-to-many mapping:        ", n_deg_1tomany, "\n", sep="")
+cat("|--------------------------------------------------|\n")
+cat("\nUnmapped deg symbols:", unmapped_deg_symb)
+```
+
+Significant differentially expressed genes (FDR \< 0.05 and \|shrunken log2FC\| ≥ 1; *n* = 101) were mapped from gene symbols to Entrez Gene IDs using the **same** universe-derived mapping table (`map_universe`) generated with **org.Hs.eg.db**. Of the 101 input symbols, **99 (98.0%)** were successfully mapped to **99 unique Entrez IDs**, with **no 1-to-many mappings** observed among DEGs, indicating unambiguous identifier conversion. Two symbols (**AL391056.1**, **AC091849.2**) could not be mapped and were therefore excluded from enrichment analyses.
+
+```{r}
+#SAVE RESULTS
+write.csv(map_sigGenes,
+          file.path("results", "mapping", "sigDEG_SYMBOL_to_ENTREZ.csv"), 
+          row.names = FALSE)
+writeLines(unmapped_deg_symb, 
+           file.path("results", "mapping", "unmapped_sigDEG_symbols.txt"))
+```
+
+**3) GO - OVEREPRESENTATION ANALYSIS - BP**
+
+```{r}
+#ORA BP
+egoBP <- enrichGO(
+  gene          = sigGenes_entrez,
+  universe      = universe_entrez,
+  OrgDb         = org.Hs.eg.db,
+  keyType       = "ENTREZID",
+  ont           = "BP",
+  pAdjustMethod = "BH",
+  qvalueCutoff  = 0.05,
+  readable      = TRUE
+)
+
+#CONVERT TO DATA-FRAME
+egoBP_df <- as.data.frame(egoBP)
+cat("\nOVER BP dimensions:", dim(egoBP_df))
+head(egoBP_df)
+
+egoBPsig_df <- egoBP_df[egoBP_df$p.adjust < 0.05, , drop = FALSE] #significant results
+cat("\nOVER BP SIGNIFICANT dimensions:", dim(egoBPsig_df))
+head(egoBPsig_df)
+```
+
+```{r}
+#SAVE RESULTS
+write.csv(egoBP_df, 
+          file.path("results", "enrichment", "GO_BP.csv"), 
+          row.names = FALSE)
+write.csv(egoBPsig_df, 
+          file.path("results", "enrichment", "GO_BP_sig.csv"), 
+          row.names = FALSE)
+```
+
+**4) SIMPLIFIED ORA-BP RESULTS (handling redundancy)**
+
+```{r}
+#ORA BP SIMPLIFIED
+egoBP_simplified <- simplify(
+  egoBP,
+  cutoff = 0.7,
+  by = "p.adjust",
+  select_fun = min
+)
+
+egoBP_simplified_df <- as.data.frame(egoBP_simplified)
+cat("Simplified GO terms:", nrow(egoBP_simplified), "\n")
+cat("Removed terms:", nrow(as.data.frame(egoBP)) - nrow(egoBP_simplified_df), "\n")
+
+#SELECT SIGNIFICANT TERMS
+egoBPsig_simplified_df <- egoBP_simplified[egoBP_simplified@result$p.adjust < 0.05,]
+head(egoBPsig_simplified_df)
+```
+
+```{r}
+#SAVE RESULTS
+write.csv(
+  egoBP_simplified_df,
+  file.path("results", "enrichment", "GO_BP_simplified.csv"),
+  row.names = FALSE
+)
+write.csv(
+  egoBPsig_simplified_df,
+  file.path("results", "enrichment", "GO_BP_sig_simplified.csv"),
+  row.names = FALSE
+)
+```
+
+### **RESULTS**
+
+#### 1) DOT-PLOT
+
+```{r fig.width=9,fig.height=7, dpi=270}
+png(file.path("plots", "enrichment", "Go_BP_simplified_DotPlot.png"), width = 2200, height = 1600, res = 250)
+dotplot(egoBP_simplified, title = "GO BP ORA")
+dev.off()
+dotplot(egoBP_simplified, title = "GO BP ORA")
+```
+
+The graph reports the over-represented pathways ordered by their **gene ratio**, so that from the top to the bottom we can see pathways with decreasing number of differentially expressed genes involved.
+
+#### 2) BAR-PLOT
+
+```{r fig.width=15, fig.height=6, dpi=270}
+png(file.path("plots","enrichment","GO_BP_simplified_BarPlot.png"),
+    width = 2200, height = 1600, res = 250)
+barplot(egoBP_simplified, title = "GO Biological Process — ORA (simplified)")
+dev.off()
+barplot(egoBP_simplified, title = "GO Biological Process — ORA (simplified)")
+```
+
+Here, the results from the ORA are ordered according to their **statistical significance**. From the top to the bottom, we have increasing values of adjusted p-values, indicating decreasing level of significance. On the x-axis we can also see the number of **gene counts** within our differentially expressed genes for each biological process.
+
+#### 3) CNET PLOT
+
+```{r fig.width=10, fig.height=7, dpi=300}
+png(file.path("plots", "enrichment", "GO_BP_simplified_CNetPlot.png"), width = 2200, height = 1600, res = 250)
+cnetplot(
+  egoBP_simplified,
+  foldChange = setNames(resApe$log2FoldChange, row.names(resApe))
+)
+dev.off()
+cnetplot(
+  egoBP_simplified,
+  foldChange = setNames(resApe$log2FoldChange, row.names(resApe))
+)
+```
+
+We have limited the discussion on the top **5 enriched pathways** ranked by their adjusted p-values.
+
+In this network representation we can see different enriched pathways with corresponding involved differentially expressed genes. These are also represented according to their log fold change, in blue if upper lobe is upregulated with respect to lower lobe, in red if upper lobe is downregulated with respect to lower lobe.
+
+------------------------------------------------------------------------
+
+**Response to alcohol**
+
+Most genes in the response to alcohol GO term are upregulated in upper-lobe tumors, with only PENK downregulated. This pathway includes genes involved in cellular responses to small molecules, oxidative stress, and xenobiotics, which is particularly relevant in lung tissue exposed to cigarette smoke. Several genes reflect epithelial remodelling and tumor signalling. CLDN3, a tight junction protein, suggests epithelial barrier reorganization typical of squamous carcinomas. FGF19, a growth factor involved in proliferation and metabolic signalling, may indicate stronger growth signalling in upper-lobe tumors. CPS1, an enzyme of the urea cycle, points to metabolic reprogramming. SFRP1, a modulator of Wnt signalling, may reflect changes in epithelial differentiation or tumor suppressor pathways. Other genes include transporters and signalling molecules such as SLC5A5, SLC6A3, F7, and OPRD1, which may contribute to altered transport activity, coagulation signalling, and stress responses in the tumor microenvironment. PENK, a neuropeptide precursor involved in neuro-immune signalling, shows reduced expression in upper-lobe tumors. Overall, upper-lobe tumors show enrichment of genes associated with metabolic stress responses, epithelial remodelling, and growth signalling, possibly reflecting stronger exposure to xenobiotics (smoke distribution differences in lungs), stronger metabolic adaptation and epithelial barrier remodelling.
+
+------------------------------------------------------------------------
+
+**Intermediate filament organization / intermediate filament-based process**
+
+These pathways regulate keratin filament assembly, essential for epithelial structure, squamous differentiation and mechanical stability. Particularly, KRT4, KRT10 and KRT9 are markers of differentiated squamous epithelium, whereas KRT31, KRT33A and KRT75 are structural keratins associated with cytoskeleton organization. All keratins here are downregulated in upper lobe, suggesting upper-lobe LUSC may be less differentiated. Loss of keratin programs is often linked to tumor progression, cytoskeletal remodelling and epithelial plasticity.
+
+------------------------------------------------------------------------
+
+**Tyrosine metabolic process**
+
+This pathway controls tyrosine catabolism, which contributes to energy metabolism, production of metabolic intermediates and oxidative stress responses. The upregulation of these genes suggests enhanced amino-acid metabolism in upper-lobe tumors, possibly linked to metabolic rewiring, increased oxidative stress and higher metabolic demands.
+
+------------------------------------------------------------------------
+
+**Cell recognition**
+
+This pathway includes genes involved in immune recognition, cell–cell interaction, and pathogen sensing. LBP (lipopolysaccharide-binding protein) plays a role in activating the innate immune response to bacterial components, while C4BPB regulates the complement system, indicating changes in inflammatory signalling. ADGRB1 is involved in cell communication and angiogenesis, potentially contributing to tumor–microenvironment interactions. Other genes such as IGLON5, CNTN2, and PAEP are involved in cell adhesion and immune modulation, suggesting broader changes in cell–cell recognition processes. COLEC10, a collectin involved in innate immune pathogen recognition, is downregulated in upper-lobe tumors. Overall, this pattern suggests differences in immune microenvironment and cell–cell interaction between lung lobes, with upper-lobe tumors showing increased innate immune signalling and altered adhesion processes.
+
+------------------------------------------------------------------------
+
+**Global biological interpretation**
+
+Overall, this enrichment suggests three major biological differences between upper and lower lobe LUSC, some of them in according to the preliminary observations specified at the beginning of the analysis:
+
+1.  Metabolic rewiring (higher in upper lobe): upper-lobe tumors may rely more on amino-acid metabolism and metabolic adaptation.
+2.  Reduced epithelial differentiation in upper lobe: upper-lobe tumors may be less differentiated or more plastic, which is often associated with higher invasiveness and cytoskeletal remodelling.
+3.  Immune and stress response differences: upper-lobe tumors may experience stronger environmental or inflammatory stress. This is biologically plausible because airflow and smoke deposition differ across lung lobes.
+
+------------------------------------------------------------------------
+
+## **CTL-SURFACEOME CORRELATION**
+
+CTL genes are genes associated with **Cytotoxic T Lymphocytes (CTLs)**, a subset of **CD8⁺ T cells** that are specialized in killing infected or cancerous cells. In transcriptomic analyses (like bulk RNA-seq), CTL genes are typically used as markers of cytotoxic immune activity in tissues or tumors.
+
+**1) CTL SIGNATURE EXPRESSION**
+
+```{r}
+dir.create(file.path("plots", "ctl"),
+           showWarnings = FALSE, 
+           recursive = TRUE)
+dir.create(file.path("results", "ctl"),
+           showWarnings = FALSE, 
+           recursive = TRUE)
+```
+
+```{r}
+#RAW COUNTS
+se0 <- se
+
+#FILTERING GENES WITH LOW INFORMATION
+keep <- rowSums(assay(se0)>= 10) >= round(ncol(se0)*0.1) #reasonable expression in at least 10% of the samples
+se0 <- se0[keep, ]
+dim(se0)
+
+#INTEGER STORAGE MODE
+mat0 <- assay(se0)
+storage.mode(mat0) <- "integer"
+assay(se0) <- mat0
+
+#FORBIDDEN COL NAMES
+colnames(rowData(se0))
+bad <- intersect(colnames(rowData(se0)), forbidden_names)
+colnames(rowData(se0))[match(bad, colnames(rowData(se0)))] <- paste0("meta_",bad)
+colnames(rowData(se0))
+
+# NORMALIZATION + VARIANCE STABILIZING TRANSFORMATION
+# done for exploratory downstream analysis
+dds0 <- DESeqDataSet(se0, design = ~ 1)
+vsd0 <- vst(dds0, blind = TRUE)
+```
+
+```{r fig.width=6, fig.height=5}
+#DEFINE CTL SIGNATURE GENES
+ctl_genes <- c("GZMA","GZMB","GZMH","GZMK","CD8A","NKG7","PRF1")
+
+#SUBSETTING FOR CTL
+ctl_counts <- assay(vsd0[ctl_genes,])
+dim(ctl_counts) #check if all CTL genes are retained
+rownames(ctl_counts)
+ctl_mean <- colMeans(ctl_counts, na.rm = TRUE)
+head(ctl_mean)
+
+
+cor_matrix <- cor(t(ctl_counts), method = "spearman",
+                  use = "pairwise.complete.obs")
+
+breaks <- seq(0.5, 1, length.out = 101)
+colors <- colorRampPalette(c("#2166ac","white","#d6604d"))(100)
+
+png(file.path("plots","ctl","CTL_spearman_heatmap.png"),
+    width = 2200, height = 1600, res = 250)
+pheatmap(cor_matrix, color = colors, breaks = breaks,
+         main = "Spearman correlation — CTL signature genes",
+         display_numbers = TRUE)
+dev.off()
+
+pheatmap(cor_matrix, color = colors, breaks = breaks,
+         main = "Spearman correlation — CTL signature genes",
+         display_numbers = TRUE)
+```
+
+Even if CTL signature genes are moderatley/highly expressed in our data, the variance transforming results may not differ dramatically. However, for exploratory analysis like correlation, performing transforming variance techniques it is still a recommended procedure.
+
+As expected, CTL genes are highly positively correlates among them.
+
+**2) SURFACEOME GENES EXTRACTION**
+
+```{r}
+surfaceome <- read_excel("SurfaceomeTable.xlsx", 
+                         skip = 1, 
+                         col_names = TRUE,
+                         col_types = "text",
+                         sheet = 2)
+dim(surfaceome)
+head(surfaceome$`UniProt gene`) # gene symbol
+cat("\nTotal Surfaceome genes SYMBOLS: ", length(surfaceome$`UniProt gene`))
+
+#UNIQUE SYMBOLS
+surfaceome_genes <- unique(surfaceome$`UniProt gene`)
+cat("\nUnique Surfaceome genes SYMBOLS: ",length(surfaceome_genes))
+
+#KEEP ONLY GENES PRESENT IN THE RNA-SEQ DATA EXPRESSION MATRIX
+surfaceome_genes_present <- intersect(surfaceome_genes, rownames(dds0))
+cat("\nUnique Surfaceome genes SYMBOLS in our dataset: ", length(surfaceome_genes_present))
+surfaceome_mat <- counts(dds0)[surfaceome_genes_present,]
+dim(surfaceome_mat)
+```
+
+This is an attended result since genes of the surfaceome could not be expressed/present in the RNA-seq data matrix.
+
+**3) SURFACEOME GENES - CTL GENES CORRELATION**
+
+```{r}
+#DATA PREPARATION
+surfaceome_results <- data.frame(
+  gene = surfaceome_genes_present,
+  rho = NA,
+  pvalue = NA
+)
+
+#COMPUTING CORRELATION DIRECTION + SIGNIFICANCE 
+for(i in seq_along(surfaceome_genes_present)){
+  gene <- surfaceome_genes_present[i]
+  expr <- as.numeric(surfaceome_mat[gene, ])
+  test <- cor.test(expr, ctl_mean, method = "spearman", exact = FALSE)
+  surfaceome_results$rho[i] <- test$estimate
+  surfaceome_results$pvalue[i] <- test$p.value
+}
+
+#ADJUSTING FOR MULTIPLE TESTS
+surfaceome_results$padj <- p.adjust(surfaceome_results$pvalue, method = "BH")
+
+surfaceome_results
+
+```
+
+```{r}
+#STORE RESULTS
+write.csv(
+  surfaceome_results,
+  file.path("results","ctl","CTL_surfaceome_correlations.csv"),
+  row.names = FALSE
+)
+```
+
+### RESULTS
+
+```{r fig.width=7, fig.height=5}
+p1 <- ggplot(surfaceome_results, aes(x = rho, y = -log10(padj))) +
+  geom_point(alpha = 0.5, size = 0.8, color = "grey50") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#c0392b") +
+  geom_vline(xintercept = c(-0.75, 0.75), linetype = "dashed", color = "#1e4f96") +
+  theme_minimal(base_size = 13) +
+  labs(x= "Spearman ρ with CTL signature",
+       y= expression(-log[10](padj)),
+       title = "Surfaceome genes vs CTL signature")
+
+ggsave(file.path("plots","ctl","CTL_surfaceome_correlation_scatter.png"),
+       p1, width = 8, height = 6, dpi = 300)
+print(p1)
+```
+
+The majority of genes have a Spearman correlation score nears zero (x-axis value). There is actually a group of genes with high positive Spearman correlation scores and low adjusted p-values (y-axis values). The dotted line represents thereshold for significance, namely \|Spearman score\|\>= 0.75 and adjusted p-value \< 0.05.
+
+**1) FILTER TOP SIGNIFICANT, MOST CORRELATED GENES**
+
+```{r}
+#SELECT SIGNIFICANT FOR POSITIVE CORRELATION 
+sig_surf_ctl_genes <- surfaceome_results[!is.na(surfaceome_results$rho) 
+                                & !is.na(surfaceome_results$padj) 
+                                & abs(surfaceome_results$rho) >= 0.75 
+                                & surfaceome_results$padj <= 0.05, ]
+
+#RETAIN THE TOP 20 GENES
+top_20_surf_ctl_genes <- head(sig_surf_ctl_genes[order(-sig_surf_ctl_genes$rho), ], 20)
+top_20_surf_ctl_genes
+```
+
+```{r}
+#SAVE RESULTS
+write.csv(
+  sig_surf_ctl_genes,
+  file.path("results","ctl","CTL_surfaceome_significant_genes.csv"),
+  row.names = FALSE
+)
+write.csv(
+  top_20_surf_ctl_genes,
+  file.path("results","ctl","CTL_surfaceome_top20.csv"),
+  row.names = FALSE
+)
+```
+
+**2) RESULTS VISUALIZATION**
+
+```{r fig.width=8, fig.height=6}
+p2 <- ggplot(surfaceome_results, aes(x = rho, y = -log10(padj))) +
+  geom_point(color = "grey60", alpha = 0.5, size = 0.8) +
+  geom_point(data = top_20_surf_ctl_genes, color = "#e67e22", size = 2.5) +
+  geom_text_repel(
+    data= top_20_surf_ctl_genes,
+    aes(label = gene),
+    size = 3.5,
+    max.overlaps = Inf,
+    box.padding = 0.5,
+    point.padding = 0.3,
+    segment.color = "grey50"
+  ) +
+  theme_classic(base_size = 13) +
+  labs(x = "Spearman ρ with CTL signature", y= expression(-log[10](padj)),
+       title = "CTL signature correlation across surfaceome genes",
+       subtitle = "Top 20 genes highlighted in orange")
+
+ggsave(file.path("plots","ctl","CTL_surfaceome_top_genes.png"),
+       p2, width = 8, height = 6, dpi = 300)
+print(p2)
+```
+
+Ecco la sezione riscritta per i tuoi risultati:
+
+------------------------------------------------------------------------
+
+**3) RESULTS INTERPRETATION**
+
+To investigate the relationship between immune cytotoxic activity and cell surface genes, a Spearman correlation analysis between gene expression levels and the computed CTL score was performed across LUSC samples.
+
+Considering the top 20 surfaceome genes ranked by correlation coefficient, the genes showing the strongest positive correlations include:
+
+-   **T-cell identity and TCR complex components:** CD3D, CD8A, CD2, CD3G, CD7, CD48
+
+-   **Cytotoxic effector program:** FASLG, CRTAM
+
+-   **Immune trafficking and chemokine signalling:** CXCR6, CXCR3, CCR5
+
+-   **Immune activation and co-stimulation:** TRAT1, GPR171, GPR174, IL12RB1, CD96
+
+-   **Adhesion and cytotoxic synapse:** SLAMF6, CD244, KLRB1, P2RY10
+
+These genes exhibit very high correlation coefficients (Spearman ρ ≈ 0.79–0.89) and extremely low adjusted p-values. In the correlation plot, they correspond to the points located in the upper-right region, reflecting both high statistical confidence and strong biological association with the CTL signature.
+
+Biologically, these results strongly support the validity of the CTL signature used in the analysis. The most correlated genes are well-established markers of cytotoxic T lymphocyte identity and function. **CD3D** and **CD3G** are core subunits of the CD3 complex, essential for T-cell receptor (TCR) signal transduction: their presence at the top of the ranking reflects massive and structurally organized T-cell infiltration in the tumor microenvironment. **CD8A**, the canonical co-receptor defining the cytotoxic T-cell phenotype, shows one of the highest correlations in the entire dataset (ρ = 0.889), confirming that the CTL signature faithfully captures the abundance of CD8+ lymphocytes. **FASLG**, encoding the Fas Ligand, represents the cytotoxic effector arm of this infiltrate: its strong correlation with the CTL score indicates that the infiltrating lymphocytes are not only present but transcriptionally armed for target cell killing, as FasL engagement with FasR on tumor cells triggers caspase-dependent apoptosis.
+
+A second group of highly correlated genes is involved in immune cell trafficking and tumor infiltration. **CXCR3** (ρ = 0.829) is the canonical chemokine receptor mediating CTL recruitment in response to CXCL9, CXCL10, and CXCL11, cytokines produced by tumor cells under IFN-γ stimulation and widely regarded as markers of a type-1 inflamed tumor microenvironment. **CXCR6** (ρ = 0.856) mediates tissue retention of resident memory T cells (Trm) and NK cells, suggesting that the CTL infiltrate in high-scoring tumors is not merely transient but includes a stably lodged lymphocyte population. **CCR5** (ρ = 0.791), which responds to CCL3, CCL4, and CCL5 produced by activated CTL themselves, further indicates an autocrine/paracrine recruitment loop sustaining immune infiltration within the tumor.
+
+Additionally, several correlated genes point to co-stimulatory and regulatory mechanisms active within the infiltrate. **TRAT1** (ρ = 0.825), an adaptor of the TCR-CD3 complex that amplifies downstream signalling, and **ICOS** (ρ = 0.767), an inducible co-stimulatory receptor expressed on activated T helper cells and regulatory T cells, suggest that TCR signalling cascades are actively engaged. Notably, the presence of co-inhibitory receptors such as **CD96** (ρ = 0.811) and **CD244** (ρ = 0.787) — both inhibitory receptors expressed on chronically stimulated CTL and NK cells — alongside activating markers is consistent with the concept of adaptive immune resistance, wherein tumors responding to immune attack simultaneously upregulate inhibitory mechanisms to counteract T-cell cytotoxicity. This pattern of co-expression of activating and inhibitory molecules is the molecular hallmark of a dysfunctional or exhausted CTL phenotype.
+
+Finally, among the top correlated genes, two orphan G-protein coupled receptors stand out: **GPR171** (ρ = 0.822) and **P2RY10** (ρ = 0.801). Both are expressed almost exclusively on lymphocytes and show robust correlation with the CTL score, yet remain poorly characterized in the oncological literature. Their consistent co-expression with canonical CTL markers across LUSC samples suggests they may serve as novel lymphocyte-specific surface biomarkers, warranting further functional investigation.
+
+Overall, these findings indicate that the CTL signature captures a coordinated immune program within the LUSC tumor microenvironment, encompassing cytotoxic T-cell effector function, T-cell infiltration and tissue retention, immune cell recruitment via chemokine signalling, and concurrent activation of immune regulatory and inhibitory pathways. The extremely strong correlations observed across the surfaceome, combined with the biological coherence of the identified genes, support the validity of the CTL signature and highlight how surface gene expression in LUSC is substantially shaped by the degree and quality of cytotoxic lymphocyte infiltration.
+
+------------------------------------------------------------------------
+
+## **SURVIVAL ANALYSIS**
+
+Are some of these genes associated with patient survival? This allows us to identify **prognostic biomarkers**:
+
+-   if a gene correlated with CTL is associated with **better survival**, it may indicate **immune control of the tumor**
+
+-   if it is associated with **worse survival**, it may indicate **immunosuppression** or other more complex mechanisms.
+
+**1) DATA PREPARATION**
+
+```{r}
+dir.create(file.path("plots", "survival"), showWarnings = FALSE, recursive = TRUE)
+dir.create(file.path("results", "survival"), showWarnings = FALSE, recursive = TRUE)
+```
+
+```{r}
+#DATA UPLOADING
+survival_data <- read.csv("SurvivalDataLUSC.csv", row.names = 1)
+
+#SELECT COMMON SAMPLES
+common_samples <- intersect(colnames(dds0), rownames(survival_data))
+
+#RE-ORDER COMMON SAMPLES FOLLOWING RNA-SEQ DATA ORDER
+survival_data_ordered <- survival_data[match(common_samples, rownames(survival_data)),]
+
+#quality check
+dim(counts(dds0))
+dim(survival_data)
+dim(survival_data_ordered)
+```
+
+We have **552** samples with gene expression data but only **544** with known survival data.
+
+**2) SURVIVAL ANALYSIS**
+
+```{r fig.width=7, fig.height=6, message=FALSE, warning=FALSE}
+genes_to_test <- sig_surf_ctl_genes$gene
+
+surv_results <- data.frame(
+  gene = character(),
+  pvalue = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (gene in genes_to_test) {
+
+  gene_expr <- as.numeric(counts(dds0)[gene, common_samples])
+
+  df_surv <- data.frame(
+    expr = gene_expr,
+    OS.time = as.numeric(survival_data_ordered$OS.time),
+    OS = as.numeric(survival_data_ordered$OS)
+  )
+  df_surv <- df_surv[complete.cases(df_surv), , drop = FALSE]
+
+  # Optimal cutpoint (maximises log-rank statistic)
+  cutpoint <- surv_cutpoint(df_surv, time = "OS.time", event = "OS", variables = "expr")
+  df_surv_cat <- surv_categorize(cutpoint)
+  df_surv$group <- factor(df_surv_cat$expr, levels = c("low","high"))
+
+  fit <- survfit(Surv(OS.time, OS) ~ group, data = df_surv)
+
+  p <- ggsurvplot(
+    fit,
+    data = df_surv,
+    pval = TRUE,
+    censor = TRUE,
+    censor.shape = 3,
+    censor.size = 1.75,
+    conf.int = FALSE,
+    risk.table = FALSE,
+    palette = c("#1e4f96","#c0392b"),
+    legend.title = gene,
+    legend.labs = c("Low","High"),
+    title = paste("Kaplan–Meier —", gene),
+    xlab = "Time (days)",
+    ylab = "Survival probability",
+    break.time.by = 500,
+    ggtheme = theme_bw(base_size = 14)
+  )
+
+  print(p)
+
+  ggsave(
+    filename = file.path("plots","survival", paste0("KM_", gene, ".png")),
+    plot = p$plot,
+    width = 7, height = 6, dpi = 300
+  )
+
+  p_logrank <- surv_pvalue(fit, data = df_surv)$pval
+  surv_results <- rbind(
+    surv_results,
+    data.frame(gene = gene, pvalue = p_logrank, stringsAsFactors = FALSE)
+  )
+}
+
+#CORRECT FOR MULTIPLE TESTING
+surv_results$padj <- p.adjust(surv_results$pvalue, method = "BH")
+surv_results <- surv_results[order(surv_results$padj),]
+
+surv_results
+```
+
+```{r}
+#SAVE RESULTS
+write.csv(
+  surv_results,
+  file.path("results","survival","survival_logrank_results.csv"),
+  row.names = FALSE
+)
+```
+
+```{r}
+#DISTRIBUTION OF K-M CURVES P-VALUES
+p3 <- ggplot(surv_results, aes(x = padj)) +
+  geom_histogram(bins = 20, fill = "grey70", color = "white") +
+  geom_vline(xintercept = 0.05, linetype = "dashed", color = "red") +
+  theme_classic() +
+  labs(
+    x = "p-value",
+    y = "Frequency",
+    title = "Distribution of p-values (survival analysis)"
+  )
+
+ggsave(
+  file.path("plots","survival","survival_pvalue_distribution.png"),
+  p3,
+  width = 7,
+  height = 6,
+  dpi = 300
+)
+
+print(p3)
+```
+
+```{r}
+#SELECT K-M CURVES WITH P-VALUES < 0.05
+sign_.05 <- surv_results[surv_results$padj <.05, ]
+sign_.05
+
+#SELECT K-M CURVES WITH P-VALUES < 0.1
+sign_.1 <- surv_results[surv_results$padj <.1, ]
+sign_.1
+
+#SAVE RESULTS
+write.csv(
+  sign_.05,
+  file.path("results","survival","survival_significant_genes_005.csv"),
+  row.names = FALSE
+)
+
+write.csv(
+  sign_.1,
+  file.path("results","survival","survival_significant_genes_01.csv"),
+  row.names = FALSE
+)
+```
+
+### RESULTS
+
+Survival analysis identified multiple immune-related genes, all belonging to the CTL-correlated surfaceome signature, whose expression levels were significantly associated with patient overall survival in LUSC. At FDR \< 0.05, **14 genes** reached statistical significance: CD3D, FASLG, HLA-DRA, HLA-DMB, PTPRC, TRAT1, ICOS, SLAMF6, CD226, CCR5, FCRL6, TNFSF13B, GPR171, and P2RY10. Extending the threshold to FDR \< 0.10 yielded **28 significant genes**, additionally including ITGAL, KLRB1, CD48, CD7, IL12RB1, CD3G, SLAMF1, CD2, CD244, IL2RG, CD96, IL18RAP, and SIT1. Their coordinated association with survival highlights the importance of the cytotoxic immune infiltrate in shaping patient prognosis in LUSC.
+
+**MAJOR PATHWAYS INVOLVED**
+
+-   **T-cell identity and TCR signalling:** CD3D, CD3G, TRAT1, CD2 — core components of T-cell receptor complex and downstream signalling cascades, whose expression confirms massive and transcriptionally active T-cell infiltration
+
+-   **Cytotoxic effector molecules:** FASLG — directly involved in target cell killing via the Fas/FasL apoptotic pathway
+
+-   **Co-stimulation and immune regulation:** ICOS, CD226, SLAMF6, SLAMF1 — receptors involved in T-cell activation, co-stimulation, and NK/T-cell crosstalk
+
+-   **Immune cell identity markers:** PTPRC, CD7, CD48, KLRB1, ITGAL — surface markers identifying specific lymphocyte populations and confirming the extent of immune infiltration
+
+-   **Chemokine signalling and immune recruitment:** CCR5 — mediates immune cell recruitment and sustains the inflammatory loop within the tumor microenvironment
+
+-   **Antigen presentation:** HLA-DRA, HLA-DMB — MHC class II components involved in antigen presentation and CTL-APC communication
+
+-   **Co-inhibitory receptors:** CD244, CD96 — inhibitory receptors expressed on chronically stimulated CTL and NK cells, indicative of a dysfunctional immune phenotype
+
+-   **Novel lymphocyte-specific markers:** GPR171, P2RY10 — orphan receptors with restricted lymphocytic expression, significant both in CTL correlation and survival
+
+**DIRECTION OF EFFECT AND BIOLOGICAL INTERPRETATION**
+
+The most critical finding of this analysis is that in **all Kaplan-Meier curves produced**, patients with **higher expression** of the significant genes exhibit **worse overall survival**. This result is paradoxical at face value — a stronger cytotoxic immune infiltrate is typically associated with better prognosis in many solid tumors — and therefore requires careful biological interpretation. Three scenarios can be hypothesized:
+
+-   **Immune infiltration reflecting tumor aggressiveness:** some tumors may become highly inflamed because they are more aggressive and generate more neoantigens, attracting immune cells but still progressing. In this case, the immune response may be reactive but insufficient to control tumor growth.
+
+-   **T-cell exhaustion:** the genes identified, particularly the co-inhibitory receptors CD244 and CD96, and the borderline significance of PDCD1 (PD-1, padj = 0.124), are characteristically expressed in chronically stimulated T cells that progressively lose effector function. In this exhaustion model, CTL are present and transcriptionally active but functionally impaired, unable to sustain durable anti-tumor killing. The co-expression of activation markers (CD3D, FASLG, TRAT1) and inhibitory receptors (CD244, CD96) within the same gene set is precisely the molecular signature of the exhausted phenotype described in the literature.
+
+-   **Immunosuppressive tumor microenvironment:** cytotoxic cells may be present but actively suppressed by regulatory T cells, myeloid-derived suppressor cells (MDSCs), or tumor-associated macrophages. In this context, ICOS deserves particular attention: while classically regarded as a co-stimulatory receptor on effector T cells, ICOS is also a defining marker of highly suppressive tumor-infiltrating regulatory T cells (Tregs) in lung cancer. Its association with worse survival may therefore reflect a balance shifted toward Treg-mediated immunosuppression rather than effective cytotoxic activity, a scenario in which immune infiltration and immune control are fundamentally dissociated.
+
+------------------------------------------------------------------------
+
+## CONCLUSIONS
+
+The genes significantly associated with poor overall survival are predominantly involved in immune-cell infiltration and cytotoxic lymphocyte function, including T-cell receptor signaling, NK/T-cell cytotoxic activity, leukocyte recruitment, and antigen presentation.
+
+Collectively, this suggests that tumors with higher expression of these immune-related genes represent an inflamed microenvironment enriched in activated cytotoxic lymphocytes. However, because higher expression is associated with worse survival, this immune infiltrate may reflect an ineffective or dysfunctional anti-tumor response, or alternatively a more aggressive tumor phenotype associated with secondary immune recruitment.
+
+The aim of this study was not to perform an in-depth biological analysis, but rather to provide an initial exploration of the data. We hope that the results obtained can serve as a starting point for more detailed investigations in the future. We believe there is still plenty of room for further investigation.

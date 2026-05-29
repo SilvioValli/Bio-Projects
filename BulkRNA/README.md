@@ -125,3 +125,6 @@ GitHub: [@SilvioValli](https://github.com/SilvioValli)
 ## Notes
 
 This analysis was conducted as an exploratory study. The aim was not to perform an exhaustive biological investigation, but to provide an initial characterization of transcriptional differences between upper and lower lobe LUSC tumors. Results are intended as a starting point for future, more focused investigations.
+
+## Disclaimer
+The project description and README file were generated with the assistance of generative AI (Claude by Anthropic). The content has been reviewed and verified by the author against the original analysis documented in `LUSC_final_project.Rmd`.

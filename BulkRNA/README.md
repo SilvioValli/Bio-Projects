@@ -20,7 +20,34 @@ The analysis is built on TCGA-style LUSC data, provided as separate files and as
 
 ## Pipeline overview
 
-The project is organized into four sequential blocks, each producing saved tables (under `results/`) and figures (under `plots/`).
+The project is organized into four blocks, each producing saved tables (under `results/`) and figures (under `plots/`). After a shared preprocessing step, the analysis splits into two arms: an anatomical comparison (DE → enrichment) and an immune-focused investigation (CTL signature → surfaceome correlation → survival).
+
+```mermaid
+flowchart TD
+    A["Input data<br/><i>counts · coldata · rowdata · surfaceome · survival</i>"] --> B["SummarizedExperiment<br/>preprocessing &amp; filtering"]
+
+    B --> C["<b>1 · DE analysis</b> — DESeq2<br/>Upper vs Lower lobe<br/>FDR &lt; 0.05 · |LFC| ≥ 1"]
+    C --> D["101 DEGs<br/>86 up · 15 down"]
+    D --> E["<b>2 · Enrichment</b> — GO BP ORA<br/>clusterProfiler"]
+    E --> F["Enriched pathways:<br/>metabolism · differentiation · immune"]
+
+    B --> G["<b>3 · CTL signature</b><br/>7 cytotoxic marker genes"]
+    G --> H["Per-sample CTL score"]
+    H --> I["<b>Surfaceome correlation</b><br/>Spearman · |ρ| ≥ 0.75 · padj &lt; 0.05"]
+    I --> J["CTL-correlated surface genes"]
+    J --> K["<b>4 · Survival analysis</b><br/>Kaplan–Meier + log-rank"]
+    K --> L["14 prognostic genes (FDR &lt; 0.05)<br/>higher expression → worse survival"]
+
+    classDef de fill:#E6F1FB,stroke:#185FA5,color:#042C53;
+    classDef enr fill:#EAF3DE,stroke:#3B6D11,color:#173404;
+    classDef ctl fill:#E1F5EE,stroke:#0F6E56,color:#04342C;
+    classDef surv fill:#FAEEDA,stroke:#854F0B,color:#412402;
+
+    class C,D de;
+    class E,F enr;
+    class G,H,I,J ctl;
+    class K,L surv;
+```
 
 ### 1. Differential expression (DE) analysis
 

@@ -27,19 +27,36 @@ Overall, differences between upper and lower lobe tumors are expected to be subt
 
 ## DEG ANALYSIS
 
-**1) LOADING LIBRARIES**
+**1) INSTALLING & LOADING LIBRARIES**
 
 ```{r}
-library(SummarizedExperiment)
-library(DESeq2)
-library(org.Hs.eg.db)
-library(ggplot2)
-library(clusterProfiler)
-library(pheatmap)
-library(readxl)
-library(ggrepel)
-library(survival)
-library(survminer)
+# Define packages from each repository
+cran_packages <- c("ggplot2", "pheatmap", "readxl", "ggrepel", "survival", "survminer")
+bioc_packages <- c("SummarizedExperiment", "DESeq2", "org.Hs.eg.db", "clusterProfiler", "apeglm")
+
+# Install BiocManager if not present
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+  install.packages("BiocManager")
+}
+
+# Check and install CRAN packages
+for (pkg in cran_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    message("Installing CRAN package: ", pkg)
+    install.packages(pkg)
+  }
+}
+
+# Check and install Bioconductor packages
+for (pkg in bioc_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    message("Installing Bioconductor package: ", pkg)
+    BiocManager::install(pkg)
+  }
+}
+
+# Load all libraries
+lapply(c(cran_packages, bioc_packages), library, character.only = TRUE)
 ```
 
 **2) DOWNLOAD**
@@ -228,9 +245,9 @@ summary(resApeSig)
 
 In our results, this produced **101** strict DE genes, with directionality:
 
--   **86 UpRegulated**
+- **86 UpRegulated**
 
--   **15 DownRegulated**
+- **15 DownRegulated**
 
 Even if the padj value displayed by "summary" is 0.1, we use the "padj" obtained by "res" namely results obtained with a FDR \< 0.05.
 
@@ -823,15 +840,15 @@ To investigate the relationship between immune cytotoxic activity and cell surfa
 
 Considering the top 20 surfaceome genes ranked by correlation coefficient, the genes showing the strongest positive correlations include:
 
--   **T-cell identity and TCR complex components:** CD3D, CD8A, CD2, CD3G, CD7, CD48
+- **T-cell identity and TCR complex components:** CD3D, CD8A, CD2, CD3G, CD7, CD48
 
--   **Cytotoxic effector program:** FASLG, CRTAM
+- **Cytotoxic effector program:** FASLG, CRTAM
 
--   **Immune trafficking and chemokine signalling:** CXCR6, CXCR3, CCR5
+- **Immune trafficking and chemokine signalling:** CXCR6, CXCR3, CCR5
 
--   **Immune activation and co-stimulation:** TRAT1, GPR171, GPR174, IL12RB1, CD96
+- **Immune activation and co-stimulation:** TRAT1, GPR171, GPR174, IL12RB1, CD96
 
--   **Adhesion and cytotoxic synapse:** SLAMF6, CD244, KLRB1, P2RY10
+- **Adhesion and cytotoxic synapse:** SLAMF6, CD244, KLRB1, P2RY10
 
 These genes exhibit very high correlation coefficients (Spearman ρ ≈ 0.79–0.89) and extremely low adjusted p-values. In the correlation plot, they correspond to the points located in the upper-right region, reflecting both high statistical confidence and strong biological association with the CTL signature.
 
@@ -851,9 +868,9 @@ Overall, these findings indicate that the CTL signature captures a coordinated i
 
 Are some of these genes associated with patient survival? This allows us to identify **prognostic biomarkers**:
 
--   if a gene correlated with CTL is associated with **better survival**, it may indicate **immune control of the tumor**
+- if a gene correlated with CTL is associated with **better survival**, it may indicate **immune control of the tumor**
 
--   if it is associated with **worse survival**, it may indicate **immunosuppression** or other more complex mechanisms.
+- if it is associated with **worse survival**, it may indicate **immunosuppression** or other more complex mechanisms.
 
 **1) DATA PREPARATION**
 
@@ -1011,31 +1028,31 @@ Survival analysis identified multiple immune-related genes, all belonging to the
 
 **MAJOR PATHWAYS INVOLVED**
 
--   **T-cell identity and TCR signalling:** CD3D, CD3G, TRAT1, CD2 — core components of T-cell receptor complex and downstream signalling cascades, whose expression confirms massive and transcriptionally active T-cell infiltration
+- **T-cell identity and TCR signalling:** CD3D, CD3G, TRAT1, CD2 — core components of T-cell receptor complex and downstream signalling cascades, whose expression confirms massive and transcriptionally active T-cell infiltration
 
--   **Cytotoxic effector molecules:** FASLG — directly involved in target cell killing via the Fas/FasL apoptotic pathway
+- **Cytotoxic effector molecules:** FASLG — directly involved in target cell killing via the Fas/FasL apoptotic pathway
 
--   **Co-stimulation and immune regulation:** ICOS, CD226, SLAMF6, SLAMF1 — receptors involved in T-cell activation, co-stimulation, and NK/T-cell crosstalk
+- **Co-stimulation and immune regulation:** ICOS, CD226, SLAMF6, SLAMF1 — receptors involved in T-cell activation, co-stimulation, and NK/T-cell crosstalk
 
--   **Immune cell identity markers:** PTPRC, CD7, CD48, KLRB1, ITGAL — surface markers identifying specific lymphocyte populations and confirming the extent of immune infiltration
+- **Immune cell identity markers:** PTPRC, CD7, CD48, KLRB1, ITGAL — surface markers identifying specific lymphocyte populations and confirming the extent of immune infiltration
 
--   **Chemokine signalling and immune recruitment:** CCR5 — mediates immune cell recruitment and sustains the inflammatory loop within the tumor microenvironment
+- **Chemokine signalling and immune recruitment:** CCR5 — mediates immune cell recruitment and sustains the inflammatory loop within the tumor microenvironment
 
--   **Antigen presentation:** HLA-DRA, HLA-DMB — MHC class II components involved in antigen presentation and CTL-APC communication
+- **Antigen presentation:** HLA-DRA, HLA-DMB — MHC class II components involved in antigen presentation and CTL-APC communication
 
--   **Co-inhibitory receptors:** CD244, CD96 — inhibitory receptors expressed on chronically stimulated CTL and NK cells, indicative of a dysfunctional immune phenotype
+- **Co-inhibitory receptors:** CD244, CD96 — inhibitory receptors expressed on chronically stimulated CTL and NK cells, indicative of a dysfunctional immune phenotype
 
--   **Novel lymphocyte-specific markers:** GPR171, P2RY10 — orphan receptors with restricted lymphocytic expression, significant both in CTL correlation and survival
+- **Novel lymphocyte-specific markers:** GPR171, P2RY10 — orphan receptors with restricted lymphocytic expression, significant both in CTL correlation and survival
 
 **DIRECTION OF EFFECT AND BIOLOGICAL INTERPRETATION**
 
 The most critical finding of this analysis is that in **all Kaplan-Meier curves produced**, patients with **higher expression** of the significant genes exhibit **worse overall survival**. This result is paradoxical at face value — a stronger cytotoxic immune infiltrate is typically associated with better prognosis in many solid tumors — and therefore requires careful biological interpretation. Three scenarios can be hypothesized:
 
--   **Immune infiltration reflecting tumor aggressiveness:** some tumors may become highly inflamed because they are more aggressive and generate more neoantigens, attracting immune cells but still progressing. In this case, the immune response may be reactive but insufficient to control tumor growth.
+- **Immune infiltration reflecting tumor aggressiveness:** some tumors may become highly inflamed because they are more aggressive and generate more neoantigens, attracting immune cells but still progressing. In this case, the immune response may be reactive but insufficient to control tumor growth.
 
--   **T-cell exhaustion:** the genes identified, particularly the co-inhibitory receptors CD244 and CD96, and the borderline significance of PDCD1 (PD-1, padj = 0.124), are characteristically expressed in chronically stimulated T cells that progressively lose effector function. In this exhaustion model, CTL are present and transcriptionally active but functionally impaired, unable to sustain durable anti-tumor killing. The co-expression of activation markers (CD3D, FASLG, TRAT1) and inhibitory receptors (CD244, CD96) within the same gene set is precisely the molecular signature of the exhausted phenotype described in the literature.
+- **T-cell exhaustion:** the genes identified, particularly the co-inhibitory receptors CD244 and CD96, and the borderline significance of PDCD1 (PD-1, padj = 0.124), are characteristically expressed in chronically stimulated T cells that progressively lose effector function. In this exhaustion model, CTL are present and transcriptionally active but functionally impaired, unable to sustain durable anti-tumor killing. The co-expression of activation markers (CD3D, FASLG, TRAT1) and inhibitory receptors (CD244, CD96) within the same gene set is precisely the molecular signature of the exhausted phenotype described in the literature.
 
--   **Immunosuppressive tumor microenvironment:** cytotoxic cells may be present but actively suppressed by regulatory T cells, myeloid-derived suppressor cells (MDSCs), or tumor-associated macrophages. In this context, ICOS deserves particular attention: while classically regarded as a co-stimulatory receptor on effector T cells, ICOS is also a defining marker of highly suppressive tumor-infiltrating regulatory T cells (Tregs) in lung cancer. Its association with worse survival may therefore reflect a balance shifted toward Treg-mediated immunosuppression rather than effective cytotoxic activity, a scenario in which immune infiltration and immune control are fundamentally dissociated.
+- **Immunosuppressive tumor microenvironment:** cytotoxic cells may be present but actively suppressed by regulatory T cells, myeloid-derived suppressor cells (MDSCs), or tumor-associated macrophages. In this context, ICOS deserves particular attention: while classically regarded as a co-stimulatory receptor on effector T cells, ICOS is also a defining marker of highly suppressive tumor-infiltrating regulatory T cells (Tregs) in lung cancer. Its association with worse survival may therefore reflect a balance shifted toward Treg-mediated immunosuppression rather than effective cytotoxic activity, a scenario in which immune infiltration and immune control are fundamentally dissociated.
 
 ------------------------------------------------------------------------
 
